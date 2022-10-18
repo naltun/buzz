@@ -5244,12 +5244,13 @@ pub const ObjectInitNode = struct {
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
     properties: std.StringArrayHashMap(*ParseNode),
 
-    fn getSuperField(self: *Self, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
+    fn getSuperField(self: *Self, gc: *GarbageCollector, object: *ObjTypeDef, name: []const u8) ?*ObjTypeDef {
         const obj_def: ObjObject.ObjectDef = object.resolved_type.?.Object;
-        if (obj_def.fields.get(name)) |obj_field| {
+        const name_objs = gc.copyString(name) catch return null;
+        if (obj_def.fields.get(name_objs)) |obj_field| {
             return obj_field;
         } else if (obj_def.super) |obj_super| {
-            return self.getSuperField(obj_super, name);
+            return self.getSuperField(gc, obj_super, name);
         }
 
         return null;
@@ -5259,7 +5260,7 @@ pub const ObjectInitNode = struct {
         var it = obj_def.fields.iterator();
         while (it.next()) |kv| {
             // If ommitted in initialization and doesn't have default value
-            if (init_properties.get(kv.key_ptr.*) == null and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
+            if (init_properties.get(kv.key_ptr.*.string) == null and obj_def.fields_defaults.get(kv.key_ptr.*) == null) {
                 try codegen.reportErrorFmt(self.node.location, "Property `{s}` was not initialized and has no default value", .{kv.key_ptr.*});
             }
         }
@@ -5316,7 +5317,7 @@ pub const ObjectInitNode = struct {
             const property_name_constant: u24 = try codegen.identifierConstant(property_name);
             const value = self.properties.get(property_name).?;
 
-            if (obj_def.fields.get(property_name) orelse self.getSuperField(object_type, property_name)) |prop| {
+            if (obj_def.fields.get(try codegen.gc.copyString(property_name)) orelse self.getSuperField(codegen.gc, object_type, property_name)) |prop| {
                 try codegen.emitCodeArg(self.node.location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
 
                 if (value.type_def == null or value.type_def.?.def_type == .Placeholder) {

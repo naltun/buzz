@@ -1321,6 +1321,12 @@ pub const ObjFunction = struct {
 
         generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
 
+        pub fn deinit(self: *FunctionDefSelf) void {
+            self.parameters.deinit();
+            self.defaults.deinit();
+            self.generic_types.deinit();
+        }
+
         pub fn nextId() usize {
             FunctionDefSelf.next_id += 1;
 
@@ -1529,13 +1535,13 @@ pub const ObjObject = struct {
 
         name: *ObjString,
         qualified_name: *ObjString,
-        methods: std.StringArrayHashMap(*ObjTypeDef),
+        methods: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
 
         pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
                 .qualified_name = qualified_name,
-                .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
+                .methods = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
             };
         }
 
@@ -1549,6 +1555,7 @@ pub const ObjObject = struct {
 
             var it = self.methods.iterator();
             while (it.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
         }
@@ -1560,14 +1567,14 @@ pub const ObjObject = struct {
         name: *ObjString,
         qualified_name: *ObjString,
         // TODO: Do i need to have two maps ?
-        fields: std.StringArrayHashMap(*ObjTypeDef),
-        fields_defaults: std.StringArrayHashMap(void),
-        static_fields: std.StringArrayHashMap(*ObjTypeDef),
-        methods: std.StringArrayHashMap(*ObjTypeDef),
+        fields: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        fields_defaults: std.AutoArrayHashMap(*ObjString, void),
+        static_fields: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        methods: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        placeholders: std.StringHashMap(*ObjTypeDef),
-        static_placeholders: std.StringHashMap(*ObjTypeDef),
+        placeholders: std.AutoHashMap(*ObjString, *ObjTypeDef),
+        static_placeholders: std.AutoHashMap(*ObjString, *ObjTypeDef),
         super: ?*ObjTypeDef = null,
         is_class: bool,
         anonymous: bool,
@@ -1578,12 +1585,12 @@ pub const ObjObject = struct {
                 .name = name,
                 .qualified_name = qualified_name,
                 .is_class = is_class,
-                .fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .static_fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .fields_defaults = std.StringArrayHashMap(void).init(allocator),
-                .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
-                .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .fields = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
+                .static_fields = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
+                .fields_defaults = std.AutoArrayHashMap(*ObjString, void).init(allocator),
+                .methods = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
+                .placeholders = std.AutoHashMap(*ObjString, *ObjTypeDef).init(allocator),
+                .static_placeholders = std.AutoHashMap(*ObjString, *ObjTypeDef).init(allocator),
                 .anonymous = anonymous,
                 .conforms_to = std.AutoHashMap(*ObjTypeDef, void).init(allocator),
             };
@@ -1617,26 +1624,31 @@ pub const ObjObject = struct {
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it3 = self.static_fields.iterator();
             while (it3.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it4 = self.methods.iterator();
             while (it4.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.value_ptr.*.toObj());
             }
 
@@ -1646,6 +1658,7 @@ pub const ObjObject = struct {
 
             var it7 = self.conforms_to.iterator();
             while (it7.next()) |kv| {
+                try gc.markObj(kv.key_ptr.*.toObj());
                 try gc.markObj(kv.key_ptr.*.toObj());
             }
         }
@@ -2923,7 +2936,22 @@ pub const ObjTypeDef = struct {
             } else if (resolved.* == .Fiber) {
                 try resolved.Fiber.mark(gc);
             } else if (resolved.* == .Placeholder) {
-                // unreachable;
+                try resolved.Placeholder.mark(gc);
+            }
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.resolved_type) |*resolved_type| {
+            switch (resolved_type.*) {
+                .Object => resolved_type.Object.deinit(),
+                .Enum => resolved_type.Enum.deinit(),
+                .Protocol => resolved_type.Protocol.deinit(),
+                .List => resolved_type.List.deinit(),
+                .Map => resolved_type.Map.deinit(),
+                .Function => resolved_type.Function.deinit(),
+                .Placeholder => resolved_type.Placeholder.deinit(),
+                else => {},
             }
         }
     }
@@ -3011,7 +3039,7 @@ pub const ObjTypeDef = struct {
                 );
 
                 {
-                    var fields = std.StringArrayHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
+                    var fields = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(type_registry.gc.allocator);
                     var it = old_object_def.fields.iterator();
                     while (it.next()) |kv| {
                         try fields.put(
@@ -3248,10 +3276,6 @@ pub const ObjTypeDef = struct {
         }
 
         return non_optional;
-    }
-
-    pub fn deinit(_: *Self) void {
-        // FIXME
     }
 
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
@@ -3872,6 +3896,26 @@ pub const PlaceholderDef = struct {
 
     pub fn deinit(self: *Self) void {
         self.children.deinit();
+    }
+
+    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+        if (self.name) |name| {
+            try gc.markObj(name.toObj());
+        }
+
+        if (self.parent) |parent| {
+            try gc.markObj(parent.toObj());
+        }
+
+        for (self.children.items) |child| {
+            try gc.markObj(child.toObj());
+        }
+
+        if (self.call_generics) |call_generics| {
+            for (call_generics) |generic| {
+                try gc.markObj(generic.toObj());
+            }
+        }
     }
 
     pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {

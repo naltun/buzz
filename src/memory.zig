@@ -60,9 +60,9 @@ pub const TypeRegistry = struct {
 
         var type_def_ptr: *ObjTypeDef = try self.gc.allocateObject(ObjTypeDef, type_def);
 
-        if (Config.debug_placeholders) {
-            std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
-        }
+        // if (Config.debug_placeholders) {
+        std.debug.print("`{s}` @{}\n", .{ type_def_str, @ptrToInt(type_def_ptr) });
+        // }
         _ = try self.registry.put(type_def_str, type_def_ptr);
 
         return type_def_ptr;
@@ -83,6 +83,7 @@ pub const TypeRegistry = struct {
     pub fn mark(self: *Self) !void {
         var it = self.registry.iterator();
         while (it.next()) |kv| {
+            std.debug.print("marking of registry `{s}` -> {}\n", .{ kv.key_ptr.*, @ptrToInt(kv.value_ptr.*) });
             try self.gc.markObj(kv.value_ptr.*.toObj());
         }
     }
