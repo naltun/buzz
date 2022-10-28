@@ -110,3 +110,6 @@ zig-out/
 zig-test/
 
 .vscode/
+
+tracy/
+.DS_Store

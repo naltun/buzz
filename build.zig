@@ -1,8 +1,25 @@
 const std = @import("std");
+const fs = std.fs;
 const builtin = @import("builtin");
 const Builder = std.build.Builder;
 
 pub fn build(b: *Builder) void {
+    const tracy = b.option(
+        []const u8,
+        "tracy",
+        "Enable Tracy integration. Supply path to Tracy source",
+    );
+    const tracy_callstack = b.option(
+        bool,
+        "tracy-callstack",
+        "Include callstack information with Tracy data. Does nothing if -Dtracy is not provided",
+    ) orelse false;
+    const tracy_allocation = b.option(
+        bool,
+        "tracy-allocation",
+        "Include allocation information with Tracy data. Does nothing if -Dtracy is not provided",
+    ) orelse false;
+
     const build_mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
 
@@ -18,6 +35,28 @@ pub fn build(b: *Builder) void {
     }
     exe.setBuildMode(build_mode);
     exe.setMainPkgPath(".");
+
+    const exe_options = b.addOptions();
+    exe.addOptions("build_options", exe_options);
+    exe_options.addOption(bool, "enable_tracy", tracy != null);
+    exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
+    exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
+    if (tracy) |tracy_path| {
+        const client_cpp = fs.path.join(
+            b.allocator,
+            &[_][]const u8{ tracy_path, "TracyClient.cpp" },
+        ) catch unreachable;
+
+        // On mingw, we need to opt into windows 7+ to get some features required by tracy.
+        const tracy_c_flags: []const []const u8 = if (target.isWindows() and target.getAbi() == .gnu)
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
+        else
+            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+
+        exe.addIncludePath(tracy_path);
+        exe.addCSourceFile(client_cpp, tracy_c_flags);
+        exe.linkSystemLibraryName("c++");
+    }
 
     var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
     lib.use_stage1 = true;

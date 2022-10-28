@@ -1,4 +1,5 @@
 const std = @import("std");
+const tracy = @import("tracy.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const _vm = @import("./vm.zig");
@@ -113,10 +114,17 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: ?[][:0]u8, flavor:
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-    var allocator: Allocator = if (builtin.mode == .Debug)
+    var allocator: Allocator = if (tracy.enable and tracy.enable_allocation)
+        tracy.tracyAllocator(std.heap.c_allocator).allocator()
+    else if (builtin.mode == .Debug)
         gpa.allocator()
     else
         std.heap.c_allocator;
+
+    var trace: ?tracy.Ctx = null;
+    if (tracy.enable) {
+        trace = tracy.trace(@src());
+    }
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help    Show help and exit
@@ -189,9 +197,11 @@ pub fn main() !void {
 
     runFile(allocator, res.positionals[0], positionals.items[1..], flavor) catch {
         // TODO: should probably choses appropriate error code
+        if (trace) |utrace| utrace.end();
         std.os.exit(1);
     };
 
+    if (trace) |utrace| utrace.end();
     std.os.exit(0);
 }
 
