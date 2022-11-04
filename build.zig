@@ -7,7 +7,7 @@ pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
 
     var exe = b.addExecutable("buzz", "src/main.zig");
-    exe.use_stage1 = true;
+    // exe.use_stage1 = true;
     exe.setTarget(target);
     exe.install();
     exe.addIncludePath("/usr/local/include");
@@ -20,7 +20,7 @@ pub fn build(b: *Builder) void {
     exe.setMainPkgPath(".");
 
     var lib = b.addSharedLibrary("buzz", "src/buzz_api.zig", .{ .unversioned = {} });
-    lib.use_stage1 = true;
+    // lib.use_stage1 = true;
     lib.setTarget(target);
     lib.install();
     lib.addIncludePath("/usr/local/include");
@@ -58,7 +58,7 @@ pub fn build(b: *Builder) void {
 
     for (lib_paths) |lib_path, index| {
         var std_lib = b.addSharedLibrary(lib_names[index], lib_path, .{ .unversioned = {} });
-        std_lib.use_stage1 = true;
+        // std_lib.use_stage1 = true;
         std_lib.setTarget(target);
         std_lib.install();
         std_lib.addIncludePath("/usr/local/include");
@@ -83,7 +83,7 @@ pub fn build(b: *Builder) void {
     if (builtin.os.tag == .linux) {
         unit_tests.linkLibC();
     }
-    unit_tests.use_stage1 = true;
+    // unit_tests.use_stage1 = true;
     unit_tests.setBuildMode(.Debug);
     unit_tests.setTarget(target);
     test_step.dependOn(&unit_tests.step);

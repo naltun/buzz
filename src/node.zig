@@ -111,22 +111,10 @@ pub const ParseNode = struct {
     // Does this node closes a scope
     ends_scope: ?std.ArrayList(OpCode) = null,
 
-    toJson: fn (*Self, std.ArrayList(u8).Writer) ToJsonError!void = stringify,
-    toByteCode: fn (*Self, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction = generate,
-    toValue: fn (*Self, *GarbageCollector) anyerror!Value = val,
-    isConstant: fn (*Self) bool,
-
-    pub fn constant(_: *Self) bool {
-        return false;
-    }
-
-    fn val(_: *Self, _: *GarbageCollector) anyerror!Value {
-        return GenError.NotConstant;
-    }
-
-    fn generate(_: *Self, _: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
-        return null;
-    }
+    toJson: *const fn (*anyopaque, *std.ArrayList(u8).Writer) ToJsonError!void,
+    toByteCode: *const fn (*anyopaque, *CodeGen, ?*std.ArrayList(usize)) anyerror!?*ObjFunction,
+    toValue: *const fn (*anyopaque, *GarbageCollector) anyerror!Value,
+    isConstant: *const fn (*anyopaque) bool,
 
     // If returns true, node must be skipped
     pub fn synchronize(self: *Self, codegen: *CodeGen) bool {
@@ -180,7 +168,9 @@ pub const ParseNode = struct {
         }
     }
 
-    fn stringify(self: *Self, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(oself: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        var self = @ptrCast(*ParseNode, oself);
+
         try out.writeAll("\"type_def\": \"");
         if (self.type_def) |type_def| {
             try type_def.toString(out);
@@ -227,21 +217,23 @@ pub const ExpressionNode = struct {
 
     node: ParseNode = .{
         .node_type = .Expression,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     expression: *ParseNode,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.expression.isConstant(self.expression);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -251,7 +243,8 @@ pub const ExpressionNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -270,7 +263,8 @@ pub const ExpressionNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Expression\", ", .{});
@@ -308,10 +302,10 @@ pub const NamedVariableNode = struct {
 
     node: ParseNode = .{
         .node_type = .NamedVariable,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     identifier: Token,
@@ -320,15 +314,16 @@ pub const NamedVariableNode = struct {
     slot_type: SlotType,
     slot_constant: bool,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -378,7 +373,8 @@ pub const NamedVariableNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print(
@@ -421,20 +417,21 @@ pub const NumberNode = struct {
 
     node: ParseNode = .{
         .node_type = .Number,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = cnst,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &cnst,
     },
 
     float_constant: ?f64,
     integer_constant: ?i64,
 
-    fn cnst(_: *ParseNode) bool {
+    fn cnst(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         if (self.float_constant) |constant| {
@@ -446,7 +443,8 @@ pub const NumberNode = struct {
         }
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -469,7 +467,8 @@ pub const NumberNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Number\", \"constant\": ", .{});
@@ -505,23 +504,25 @@ pub const BooleanNode = struct {
 
     node: ParseNode = .{
         .node_type = .Boolean,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = cnts,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &cnts,
     },
 
     constant: bool,
 
-    fn cnts(_: *ParseNode) bool {
+    fn cnts(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         return Value{ .Boolean = Self.cast(node).?.constant };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -538,7 +539,8 @@ pub const BooleanNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Boolean\", \"constant\": \"{}\", ", .{self.constant});
@@ -566,23 +568,25 @@ pub const StringLiteralNode = struct {
 
     node: ParseNode = .{
         .node_type = .StringLiteral,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = cnst,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &cnst,
     },
 
     constant: *ObjString,
 
-    fn cnst(_: *ParseNode) bool {
+    fn cnst(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         return Self.cast(node).?.constant.toValue();
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -599,7 +603,8 @@ pub const StringLiteralNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"StringLiteral\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -627,23 +632,25 @@ pub const PatternNode = struct {
 
     node: ParseNode = .{
         .node_type = .Pattern,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = cnst,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &cnst,
     },
 
     constant: *ObjPattern,
 
-    fn cnst(_: *ParseNode) bool {
+    fn cnst(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(node: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, _: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         return Self.cast(node).?.constant.toValue();
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -660,7 +667,8 @@ pub const PatternNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         // var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Pattern\", \"constant\": \"__TODO_ESCAPE_QUOTES__\", ", .{}); //.{self.constant.string});
@@ -688,16 +696,17 @@ pub const StringNode = struct {
 
     node: ParseNode = .{
         .node_type = .String,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     // List of nodes that will eventually be converted to strings concatened together
     elements: []*ParseNode,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         for (self.elements) |element| {
@@ -709,7 +718,8 @@ pub const StringNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -730,7 +740,8 @@ pub const StringNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -771,7 +782,8 @@ pub const StringNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"String\", \"elements\": [");
@@ -819,21 +831,22 @@ pub const NullNode = struct {
 
     node: ParseNode = .{
         .node_type = .Null,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return Value{ .Null = {} };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -848,7 +861,8 @@ pub const NullNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         try out.writeAll("{\"node\": \"Null\", ");
 
         try ParseNode.stringify(node, out);
@@ -874,21 +888,22 @@ pub const VoidNode = struct {
 
     node: ParseNode = .{
         .node_type = .Void,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return true;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return Value{ .Void = {} };
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -903,7 +918,8 @@ pub const VoidNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         try out.writeAll("{\"node\": \"Void\", ");
 
         try ParseNode.stringify(node, out);
@@ -929,15 +945,16 @@ pub const ListNode = struct {
 
     node: ParseNode = .{
         .node_type = .List,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     items: []*ParseNode,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         for (self.items) |item| {
@@ -949,7 +966,8 @@ pub const ListNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -967,7 +985,8 @@ pub const ListNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1005,7 +1024,8 @@ pub const ListNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"List\", \"items\": [");
@@ -1043,16 +1063,17 @@ pub const MapNode = struct {
 
     node: ParseNode = .{
         .node_type = .Map,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     keys: []*ParseNode,
     values: []*ParseNode,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         for (self.keys) |key| {
@@ -1070,7 +1091,8 @@ pub const MapNode = struct {
         return true;
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -1094,7 +1116,8 @@ pub const MapNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1144,7 +1167,8 @@ pub const MapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Map\", \"items\": [");
@@ -1190,22 +1214,24 @@ pub const UnwrapNode = struct {
 
     node: ParseNode = .{
         .node_type = .Unwrap,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     unwrapped: *ParseNode,
     original_type: ?*ObjTypeDef,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.unwrapped.isConstant(self.unwrapped);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -1215,7 +1241,8 @@ pub const UnwrapNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1254,7 +1281,8 @@ pub const UnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unwrap\", \"unwrapped\": ");
@@ -1285,22 +1313,24 @@ pub const ForceUnwrapNode = struct {
 
     node: ParseNode = .{
         .node_type = .ForceUnwrap,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     unwrapped: *ParseNode,
     original_type: ?*ObjTypeDef,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.unwrapped.isConstant(self.unwrapped);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -1315,7 +1345,8 @@ pub const ForceUnwrapNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1344,7 +1375,8 @@ pub const ForceUnwrapNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForceUnwrap\", \"unwrapped\": ");
@@ -1375,9 +1407,9 @@ pub const IsNode = struct {
 
     node: ParseNode = .{
         .node_type = .Is,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
         .isConstant = cnts,
     },
 
@@ -1390,7 +1422,8 @@ pub const IsNode = struct {
         return self.left.isConstant(self.left);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
             const left = try self.left.toValue(self.left, gc);
@@ -1400,7 +1433,8 @@ pub const IsNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1428,7 +1462,8 @@ pub const IsNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Is\", \"left\": ");
@@ -1462,22 +1497,24 @@ pub const UnaryNode = struct {
 
     node: ParseNode = .{
         .node_type = .Unary,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     left: *ParseNode,
     operator: TokenType,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.left.isConstant(self.left);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -1500,7 +1537,8 @@ pub const UnaryNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -1561,7 +1599,8 @@ pub const UnaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Unary\", \"left\": ");
@@ -1592,23 +1631,25 @@ pub const BinaryNode = struct {
 
     node: ParseNode = .{
         .node_type = .Binary,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     left: *ParseNode,
     right: *ParseNode,
     operator: TokenType,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.left.isConstant(self.left) and self.right.isConstant(self.right);
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -1854,7 +1895,8 @@ pub const BinaryNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2083,7 +2125,8 @@ pub const BinaryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Binary\", \"left\": ");
@@ -2116,23 +2159,25 @@ pub const SubscriptNode = struct {
 
     node: ParseNode = .{
         .node_type = .Subscript,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     subscripted: *ParseNode,
     index: *ParseNode,
     value: ?*ParseNode,
 
-    fn constant(node: *ParseNode) bool {
+    fn constant(onode: *anyopaque) bool {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?;
 
         return self.subscripted.isConstant(self.subscripted) and self.index.isConstant(self.index) and self.value == null;
     }
 
-    fn val(node: *ParseNode, gc: *GarbageCollector) anyerror!Value {
+    fn val(onode: *anyopaque, gc: *GarbageCollector) anyerror!Value {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.isConstant(node)) {
             const self = Self.cast(node).?;
 
@@ -2190,7 +2235,8 @@ pub const SubscriptNode = struct {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2262,7 +2308,8 @@ pub const SubscriptNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Subscript\", \"subscripted\": ");
@@ -2304,25 +2351,26 @@ pub const TryNode = struct {
 
     node: ParseNode = .{
         .node_type = .Try,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     body: *ParseNode,
     clauses: std.AutoArrayHashMap(*ObjTypeDef, *ParseNode),
     unconditional_clause: ?*ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2420,7 +2468,8 @@ pub const TryNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Try\", ", .{});
@@ -2464,10 +2513,10 @@ pub const FunctionNode = struct {
 
     node: ParseNode = .{
         .node_type = .Function,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     body: ?*BlockNode = null,
@@ -2483,16 +2532,17 @@ pub const FunctionNode = struct {
     test_slots: ?[]usize = null,
     exported_count: ?usize = null,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         // TODO: should be true but requires to codegen the node
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2642,7 +2692,8 @@ pub const FunctionNode = struct {
         return current_function;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print(
@@ -2746,23 +2797,24 @@ pub const YieldNode = struct {
 
     node: ParseNode = .{
         .node_type = .Yield,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     expression: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2806,7 +2858,8 @@ pub const YieldNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Yield\", \"expression\": ");
@@ -2838,23 +2891,24 @@ pub const ResolveNode = struct {
 
     node: ParseNode = .{
         .node_type = .Resolve,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     fiber: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2883,7 +2937,8 @@ pub const ResolveNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resolve\", \"fiber\": ");
@@ -2915,23 +2970,24 @@ pub const ResumeNode = struct {
 
     node: ParseNode = .{
         .node_type = .Resume,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     fiber: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -2960,7 +3016,8 @@ pub const ResumeNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"Resume\", \"fiber\": ");
@@ -2992,23 +3049,24 @@ pub const AsyncCallNode = struct {
 
     node: ParseNode = .{
         .node_type = .AsyncCall,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     call: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3032,7 +3090,8 @@ pub const AsyncCallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         const self = Self.cast(node).?; // self
 
         try out.writeAll("{\"node\": \"AsyncCall\", \"call\": ");
@@ -3064,10 +3123,10 @@ pub const CallNode = struct {
 
     node: ParseNode = .{
         .node_type = .Call,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     async_call: bool = false,
@@ -3078,15 +3137,16 @@ pub const CallNode = struct {
 
     resolved_generics: []*ObjTypeDef,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3444,7 +3504,8 @@ pub const CallNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Call\"");
@@ -3535,25 +3596,26 @@ pub const FunDeclarationNode = struct {
 
     node: ParseNode = .{
         .node_type = .FunDeclaration,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     function: *FunctionNode,
     slot: usize,
     slot_type: SlotType,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3574,7 +3636,8 @@ pub const FunDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"FunDeclaration\",\"slot_type\": \"{}\",\"function\": ", .{self.slot_type});
@@ -3606,10 +3669,10 @@ pub const VarDeclarationNode = struct {
 
     node: ParseNode = .{
         .node_type = .VarDeclaration,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     name: Token,
@@ -3620,15 +3683,16 @@ pub const VarDeclarationNode = struct {
     slot: usize,
     slot_type: SlotType,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3666,7 +3730,8 @@ pub const VarDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print(
@@ -3719,24 +3784,25 @@ pub const EnumNode = struct {
 
     node: ParseNode = .{
         .node_type = .Enum,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     slot: usize,
     cases: std.ArrayList(*ParseNode),
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3791,7 +3857,8 @@ pub const EnumNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Enum\", \"cases\": [");
@@ -3838,24 +3905,25 @@ pub const ThrowNode = struct {
 
     node: ParseNode = .{
         .node_type = .Throw,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     error_value: *ParseNode,
     unconditional: bool,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3907,7 +3975,8 @@ pub const ThrowNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Throw\", \"error_value\": ");
@@ -3939,21 +4008,22 @@ pub const BreakNode = struct {
 
     node: ParseNode = .{
         .node_type = .Break,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -3972,7 +4042,7 @@ pub const BreakNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(_: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("{\"node\": \"Break\" }");
     }
 
@@ -3994,21 +4064,22 @@ pub const ContinueNode = struct {
 
     node: ParseNode = .{
         .node_type = .Continue,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -4027,7 +4098,7 @@ pub const ContinueNode = struct {
         return null;
     }
 
-    fn stringify(_: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(_: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
         try out.writeAll("{\"node\": \"Continue\" }");
     }
 
@@ -4049,10 +4120,10 @@ pub const IfNode = struct {
 
     node: ParseNode = .{
         .node_type = .If,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     condition: *ParseNode,
@@ -4061,15 +4132,16 @@ pub const IfNode = struct {
     body: *ParseNode,
     else_branch: ?*ParseNode = null,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -4146,7 +4218,8 @@ pub const IfNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"If\", \"condition\": ");
@@ -4187,24 +4260,25 @@ pub const ReturnNode = struct {
 
     node: ParseNode = .{
         .node_type = .Return,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     value: ?*ParseNode,
     unconditional: bool,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -4244,7 +4318,8 @@ pub const ReturnNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Return\", ");
@@ -4278,10 +4353,10 @@ pub const ForNode = struct {
 
     node: ParseNode = .{
         .node_type = .For,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     init_declarations: std.ArrayList(*VarDeclarationNode),
@@ -4289,15 +4364,16 @@ pub const ForNode = struct {
     post_loop: std.ArrayList(*ParseNode),
     body: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -4367,7 +4443,8 @@ pub const ForNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"For\", \"init_declarations\": [");
@@ -4432,10 +4509,10 @@ pub const ForEachNode = struct {
 
     node: ParseNode = .{
         .node_type = .ForEach,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     key: ?*VarDeclarationNode = null,
@@ -4443,15 +4520,16 @@ pub const ForEachNode = struct {
     iterable: *ParseNode,
     block: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -4601,7 +4679,8 @@ pub const ForEachNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ForEach\", ");
@@ -4660,24 +4739,25 @@ pub const WhileNode = struct {
 
     node: ParseNode = .{
         .node_type = .While,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     condition: *ParseNode,
     block: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -4726,7 +4806,8 @@ pub const WhileNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"While\", \"condition\": ");
@@ -4774,24 +4855,25 @@ pub const DoUntilNode = struct {
 
     node: ParseNode = .{
         .node_type = .DoUntil,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     condition: *ParseNode,
     block: *ParseNode,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, _breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         _ = try node.generate(codegen, _breaks);
 
         var self = Self.cast(node).?;
@@ -4833,7 +4915,8 @@ pub const DoUntilNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"DoUntil\", \"condition\": ");
@@ -4881,23 +4964,24 @@ pub const BlockNode = struct {
 
     node: ParseNode = .{
         .node_type = .Block,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     statements: std.ArrayList(*ParseNode),
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -4916,7 +5000,8 @@ pub const BlockNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Block\", \"statements\": [");
@@ -4964,10 +5049,10 @@ pub const DotNode = struct {
 
     node: ParseNode = .{
         .node_type = .Dot,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     callee: *ParseNode,
@@ -4977,16 +5062,17 @@ pub const DotNode = struct {
     call: ?*CallNode = null,
     enum_index: ?usize = null,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         // TODO: should be true, but we have to evaluate a constant call
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -5084,7 +5170,8 @@ pub const DotNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"Dot\", \"callee\": ");
@@ -5128,10 +5215,10 @@ pub const ObjectInitNode = struct {
 
     node: ParseNode = .{
         .node_type = .ObjectInit,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     object: ?*ParseNode, // Should mostly be a NamedVariableNode
@@ -5147,15 +5234,16 @@ pub const ObjectInitNode = struct {
         }
     }
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -5234,7 +5322,8 @@ pub const ObjectInitNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectInit\", \"properties\": {");
@@ -5296,10 +5385,10 @@ pub const ObjectDeclarationNode = struct {
 
     node: ParseNode = .{
         .node_type = .ObjectDeclaration,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     slot: usize,
@@ -5308,15 +5397,16 @@ pub const ObjectDeclarationNode = struct {
     properties_type: std.StringHashMap(*ObjTypeDef),
     docblocks: std.StringHashMap(?Token),
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -5432,7 +5522,8 @@ pub const ObjectDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.writeAll("{\"node\": \"ObjectDeclaration\", \"methods\": {");
@@ -5516,24 +5607,25 @@ pub const ProtocolDeclarationNode = struct {
 
     node: ParseNode = .{
         .node_type = .ObjectDeclaration,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     // Nothing here because protocol only make sense at compile time
     // The only revelant thing is the node type_def
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -5546,7 +5638,8 @@ pub const ProtocolDeclarationNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         try out.writeAll("{\"node\": \"ProtocolDeclaration\", ");
 
         try ParseNode.stringify(node, out);
@@ -5572,31 +5665,33 @@ pub const ExportNode = struct {
 
     node: ParseNode = .{
         .node_type = .Export,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     identifier: Token,
     alias: ?Token = null,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, _: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         try node.patchOptJumps(codegen);
         try node.endScope(codegen);
 
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Export\", \"identifier\": \"{s}\", ", .{self.identifier.lexeme});
@@ -5628,10 +5723,10 @@ pub const ImportNode = struct {
 
     node: ParseNode = .{
         .node_type = .Import,
-        .toJson = stringify,
-        .toByteCode = generate,
-        .toValue = val,
-        .isConstant = constant,
+        .toJson = &stringify,
+        .toByteCode = &generate,
+        .toValue = &val,
+        .isConstant = &constant,
     },
 
     imported_symbols: ?std.StringHashMap(void) = null,
@@ -5639,15 +5734,16 @@ pub const ImportNode = struct {
     path: Token,
     import: ?Parser.ScriptImport,
 
-    fn constant(_: *ParseNode) bool {
+    fn constant(_: *anyopaque) bool {
         return false;
     }
 
-    fn val(_: *ParseNode, _: *GarbageCollector) anyerror!Value {
+    fn val(_: *anyopaque, _: *GarbageCollector) anyerror!Value {
         return GenError.NotConstant;
     }
 
-    fn generate(node: *ParseNode, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+    fn generate(onode: *anyopaque, codegen: *CodeGen, breaks: ?*std.ArrayList(usize)) anyerror!?*ObjFunction {
+        const node = @ptrCast(*ParseNode, onode);
         if (node.synchronize(codegen)) {
             return null;
         }
@@ -5672,7 +5768,8 @@ pub const ImportNode = struct {
         return null;
     }
 
-    fn stringify(node: *ParseNode, out: std.ArrayList(u8).Writer) ToJsonError!void {
+    fn stringify(onode: *anyopaque, out: *std.ArrayList(u8).Writer) ToJsonError!void {
+        const node = @ptrCast(*ParseNode, onode);
         var self = Self.cast(node).?;
 
         try out.print("{{\"node\": \"Import\", \"path\": \"{s}\"", .{self.path.literal_string.?});
